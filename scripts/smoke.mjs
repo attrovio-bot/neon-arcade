@@ -150,11 +150,17 @@ try {
     const raw = localStorage.getItem('neon-arcade:firenze:city:v1');
     if (!raw) return null;
     const save = JSON.parse(raw);
-    return save?.cities?.oltrarno ?? null;
+    return save?.city ?? null;
   });
   if (!citySave) throw new Error('Firenze city was not written to localStorage');
   if (!(citySave.nodes || []).length) throw new Error('Firenze save has no buildings');
-  console.log(`  city saved: ${citySave.nodes.length} plots, ${citySave.citizens} survivors`);
+  if (!citySave.army || typeof citySave.army !== 'object') throw new Error('Firenze save has no army');
+  console.log(
+    `  city saved: ${citySave.nodes.length} plots, ${citySave.citizens} citizens, ${Object.values(citySave.army).reduce(
+      (sum, n) => sum + n,
+      0,
+    )} troops`,
+  );
   await leaveGame();
 
   step('storage sheet');

@@ -12,7 +12,7 @@ Live: **https://attrovio-bot.github.io/neon-arcade/**
 | --- | --- | --- |
 | **Neon Stack** | Drop sliding slabs, keep the tower alive, win width back with dead-centre drops. | Tap |
 | **Tunnel Run** | Steer a ship through collapsing neon gates, thread the holes, grab orbs. | Drag / keys |
-| **Firenze: Last Light** | Rebuild a ruined neon Florence, cure the infected, trade, craft and hold off three hordes per district. The city is saved on your device. | Tap / drag |
+| **Firenze: Last Light** | One persistent Florence, three sieges: rebuild and upgrade the city, drill a specialized army, then deploy it at the gates. | Tap / drag |
 
 ## How it works
 
@@ -27,7 +27,7 @@ GitHub Pages
    ├─ index.json         catalog: id, version, file, size, sha256
    ├─ stack-1.0.0.arcp   Neon Stack
    ├─ tunnel-1.0.0.arcp  Tunnel Run
-   └─ firenze-1.0.0.arcp Firenze: Last Light
+   └─ firenze-2.0.0.arcp Firenze: Last Light
 ```
 
 Tapping a game:
@@ -60,29 +60,44 @@ offset 12  JSON header     id, name, version, art, controls, asset table,
 Building (`scripts/build-packs.mjs`) bundles each `games/<id>/index.js` with esbuild
 (minified ESM, Three.js included), gzips it, appends declared assets, wraps it in the
 container and writes `public/packs/<id>-<version>.arcp` plus `index.json`. Packs are
-budgeted at 2 MB; the three shipped packs are ~137–164 KB each. Assets (glow/noise
+budgeted at 2 MB; the three shipped packs are ~137–172 KB each. Assets (glow/noise
 textures, icons) are generated at build time by a dependency-free PNG writer in
 `scripts/png.mjs`, so no binary art is committed.
 
 ## Firenze: Last Light
 
-A compact real-time strategy game about holding a city together after the outbreak.
-Each of the three districts (Oltrarno, Santa Croce, Duomo) has three hordes, and the
-third always brings a boss. You choose when to ring the bell.
+A compact real-time strategy game about holding one city together after the outbreak.
+The same Florence is used for all three sieges (Porta San Frediano, Ponte Vecchio and
+Santa Maria del Fiore), and every building, upgrade, citizen and soldier is carried
+between them. Each siege has three hordes; the third brings a crowned boss.
 
-- **Rebuild** ruined houses, farms, quarries, furnaces, infirmaries, barracks,
-  markets, workshops and watchtowers. Citizens staff them automatically, in priority
-  order `clinic → farm → quarry → furnace → market → workshop`.
-- **Cure** three infected from a nest to gain survivors and biomass, and to make the
-  next horde smaller. Biomass burns for energy at the furnace.
+- **Build and upgrade** houses, farms, quarries, lime kilns, spezierie, barracks,
+  stables, armories, markets, botteghe and watchtowers. Empty lots accept any building,
+  and every building can be raised to level III. Citizens staff workplaces
+  automatically in priority order `spezieria → farm → quarry → furnace → market →
+  bottega → armory → stables`.
+- **Raise a specialized army**: Lancieri (cheap spearmen), Balestrieri (ranged
+  crossbowmen, unlocked by the Bottega) and Cavalieri (armoured shock troops, unlocked
+  by the Stables). Barracks, stable levels, armory levels, gear and permanent drill
+  ranks determine capacity, damage and health. A fully developed city can keep
+  hundreds of soldiers.
+- **Deploy at three rally banners** (Porta a Prato, Borgo Ognissanti and Santa Croce)
+  before or during a siege. Each siege level and horde sets a deployment limit; a
+  single gate can only hold part of the force, so spreading across two or three
+  approaches matters. Deployed troops auto-fight; survivors return to reserve when a
+  horde breaks, while the fallen are lost.
+- **Cure** three infected from a nest to gain citizens and biomass, and to make the
+  next horde smaller. Biomass burns for energy at the lime kiln.
 - **Trade** through caravans, permanent routes and fixed exchanges. The Bottega
-  crafts gear and trains militia ranks.
-- **Fight** with auto-battling militia and towers, plus three cooldown abilities.
+  crafts gear and permanent army drills.
+- **Fight** with auto-battling soldiers, watchtowers, a rally ability, volleys and
+  emergency repairs.
 - **Persist** the whole city in `localStorage` under
-  `neon-arcade:firenze:city:v1`: every plot, store, survivor, nest count and wave.
-  A lost horde withdraws, patches the landmark and leaves the city intact. Nothing
-  resets or restarts the district — the same Florence is there next launch.
-  Permanent gear, routes and upgrades live in the same save.
+  `neon-arcade:firenze:city:v1`: every plot, building level, store, citizen, nest,
+  reserve soldier, training queue and wave. A lost siege withdraws the horde, patches
+  the Palazzo and leaves the city intact. Nothing resets or restarts Florence — the
+  same city and army are there next launch. Version 1 saves are migrated by keeping
+  the most developed district.
 - The arcade best for this pack is the total number of hordes held (0–9), committed
   through `ctx.saveScore()` as soon as it grows.
 
@@ -161,9 +176,9 @@ in `src/main.js`); `accent`/`accent2` theme the card, loader and HUD.
 
 - Installed packs and best scores live locally in IndexedDB.
 - Firenze keeps its city in `localStorage` (`neon-arcade:firenze:city:v1`):
-  buildings, survivors, stores, nests, wave progress and permanent upgrades. It
-  survives reloads, losses and pack updates, and is only removed if you clear site
-  data or browser storage.
+  buildings and levels, citizens, stores, nests, reserve army, training queue, wave
+  progress and permanent upgrades. It survives reloads, losses and pack updates, and
+  is only removed if you clear site data or browser storage.
 - **Storage** in the hub shows usage, requests persistent storage, and deletes one
   pack or everything.
 - Deleting a pack removes its header and payload; best scores stay on the device.

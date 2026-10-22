@@ -1,9 +1,9 @@
 /**
  * FIRENZE: LAST LIGHT — pack entry.
  *
- * The city itself is the save file: every restored building, every survivor,
- * every nest and every crate of stores is written to localStorage and restored
- * exactly as it was. Losing a horde never wipes or restarts the district.
+ * One city, saved whole. Every wall, worker, store and soldier belongs to
+ * Florence itself; the three sieges only change who is at the gates. Losing a
+ * siege never wipes or restarts the city.
  */
 
 import { BUILDINGS, LEVELS } from './levels.js';
@@ -12,15 +12,39 @@ import { createWorld } from './world.js';
 import { createUI } from './ui.js';
 
 const SAVE_KEY = 'neon-arcade:firenze:city:v1';
-const AUTOSAVE = 3;
-const CYAN = 0x22e1ff;
-const MAGENTA = 0xff2f8e;
-const LIME = 0xb9ff4d;
-const AMBER = 0xffc857;
+const AUTOSAVE = 4;
+const GOLD = 0xd8b36a;
+const TERRACOTTA = 0xb05a3c;
+const OLIVE = 0x8d9a5d;
+const AMBER = 0xe0b25f;
+const IRON = 0xaab3b5;
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const sumWaves = (cleared) =>
   Object.values(cleared || {}).reduce((total, value) => total + clamp(Number(value) || 0, 0, 3), 0);
+
+function snapshotScore(city) {
+  if (!city || typeof city !== 'object') return -1;
+  const restored = (city.nodes || []).filter((node) => node.restored).length;
+  const levels = (city.nodes || []).reduce((sum, node) => sum + (Number(node.level) || 1), 0);
+  const army = Object.values(city.army || {}).reduce((sum, n) => sum + (Number(n) || 0), 0);
+  return restored * 40 + levels * 8 + army + (Number(city.citizens) || 0);
+}
+
+function migrateCity(raw) {
+  if (raw?.city && typeof raw.city === 'object' && Array.isArray(raw.city.nodes)) return raw.city;
+  if (!raw?.cities || typeof raw.cities !== 'object') return null;
+  let best = null;
+  let bestScore = -1;
+  for (const city of Object.values(raw.cities)) {
+    const score = snapshotScore(city);
+    if (score > bestScore) {
+      best = city;
+      bestScore = score;
+    }
+  }
+  return best;
+}
 
 function readSave(ctx) {
   let raw = null;
@@ -31,18 +55,17 @@ function readSave(ctx) {
   }
 
   const save = {
-    v: 1,
+    v: 2,
     unlocked: 1,
     cleared: { 1: 0, 2: 0, 3: 0 },
     last: 1,
     meta: { routes: [], gear: [], upg: { weapon: 0, armor: 0 } },
-    cities: {},
+    city: null,
     totalWaves: 0,
-    stats: { kills: 0, cured: 0, built: 0, lost: 0 },
+    stats: { kills: 0, cured: 0, built: 0, lost: 0, upgraded: 0, deployed: 0, trained: 0 },
   };
 
   if (raw && typeof raw === 'object') {
-    save.v = 1;
     save.unlocked = clamp(Math.round(Number(raw.unlocked) || 1), 1, 3);
     save.last = clamp(Math.round(Number(raw.last) || 1), 1, 3);
     for (const order of [1, 2, 3]) {
@@ -56,28 +79,19 @@ function readSave(ctx) {
       : [];
     save.meta.upg.weapon = clamp(Math.round(Number(raw.meta?.upg?.weapon) || 0), 0, 3);
     save.meta.upg.armor = clamp(Math.round(Number(raw.meta?.upg?.armor) || 0), 0, 3);
-    if (raw.cities && typeof raw.cities === 'object') {
-      for (const level of LEVELS) {
-        const city = raw.cities[level.id];
-        if (city && typeof city === 'object' && Array.isArray(city.nodes)) {
-          save.cities[level.id] = city;
-        }
-      }
-    }
-    for (const key of ['kills', 'cured', 'built', 'lost']) {
+    for (const key of Object.keys(save.stats)) {
       const value = Number(raw.stats?.[key]);
       if (Number.isFinite(value)) save.stats[key] = Math.max(0, Math.round(value));
     }
+    save.city = migrateCity(raw);
   }
 
-  // A previous arcade best (waves held) can bootstrap a save that was cleared
-  // by browser storage pressure. It never lowers real progress.
+  // A previous arcade best (waves held) can bootstrap progress after browser
+  // storage pressure wiped localStorage, but it never lowers real progress.
   const best = Math.max(0, Math.round(Number(ctx.best) || 0));
   const fromCleared = sumWaves(save.cleared);
-  save.totalWaves = Math.max(fromCleared, best);
-  if (!raw && best > 0) {
-    save.unlocked = best >= 6 ? 3 : best >= 3 ? 2 : 1;
-  }
+  save.totalWaves = Math.max(fromCleared, best, Math.round(Number(raw?.totalWaves) || 0));
+  if (!raw && best > 0) save.unlocked = best >= 6 ? 3 : best >= 3 ? 2 : 1;
   save.last = clamp(save.last, 1, save.unlocked);
 
   return save;
@@ -94,19 +108,40 @@ export default {
     let active = false;
     let autosave = 0;
     let disposed = false;
+    let reportedKills = 0;
+    let reportedCured = 0;
 
     ui.setCatalog(BUILDINGS);
     ui.setLevels(LEVELS);
-
     world.resize(ctx.width, ctx.height, ctx.dpr);
-    ctx.setLabel?.(ctx.meta?.scoreLabel || 'WAVES');
+    ctx.setLabel?.(ctx.meta?.scoreLabel || 'HORDES');
     ctx.setScore?.(save.totalWaves);
 
     /* -------------------------------- persistence ------------------------------ */
 
     function captureCity() {
-      if (!sim || !currentLevel) return;
-      save.cities[currentLevel.id] = sim.snapshot();
+      if (!sim || !active) return;
+      save.city = sim.snapshot();
+    }
+
+    function reportStats() {
+      if (!sim) return;
+      const kills = Math.max(0, sim.state.stats.kills - reportedKills);
+      const cured = Math.max(0, sim.state.stats.cured - reportedCured);
+      reportedKills += kills;
+      reportedCured += cured;
+      save.stats.kills += kills;
+      save.stats.cured += cured;
+      save.stats.built += sim.state.stats.built;
+      save.stats.upgraded += sim.state.stats.upgraded;
+      save.stats.lost += sim.state.stats.lost;
+      save.stats.deployed += sim.state.stats.deployed;
+      save.stats.trained += sim.state.stats.trained;
+      sim.state.stats.built = 0;
+      sim.state.stats.upgraded = 0;
+      sim.state.stats.lost = 0;
+      sim.state.stats.deployed = 0;
+      sim.state.stats.trained = 0;
     }
 
     function persist() {
@@ -125,6 +160,7 @@ export default {
     }
 
     function flush() {
+      reportStats();
       captureCity();
       save.totalWaves = sumWaves(save.cleared);
       try {
@@ -143,34 +179,46 @@ export default {
 
     /* --------------------------------- screens --------------------------------- */
 
+    function cityForLevel(level, { freshSiege = false } = {}) {
+      const source = save.city;
+      if (!source) return null;
+      if (freshSiege) return { ...source, wave: 0, scenario: level.id };
+      const savedScenario = source.scenario || null;
+      if (savedScenario === level.id && (Number(source.wave) || 0) < 3) return source;
+      if (!savedScenario && save.last === level.order && (Number(source.wave) || 0) < 3) return source;
+      return { ...source, wave: 0, scenario: level.id };
+    }
+
     function previewLevel(order) {
       const level = LEVELS.find((lv) => lv.order === order) || LEVELS[0];
       currentLevel = level;
       active = false;
-      sim = createSim(level, save.meta, {}, save.cities[level.id] || null);
+      reportedKills = 0;
+      reportedCured = 0;
+      sim = createSim(level, save.meta, {}, cityForLevel(level));
       world.loadLevel(level);
       world.sync(sim.state, 0);
     }
 
     function showStart() {
       previewLevel(save.last);
+      if (!save.city) save.city = sim.snapshot();
       ui.showStart(LEVELS, save, save.last);
       world.render();
     }
 
-    function enterLevel(order, { fromVictory = false } = {}) {
+    function enterLevel(order, { freshSiege = false } = {}) {
       const level = LEVELS.find((lv) => lv.order === order);
       if (!level) return;
       if (order > save.unlocked) {
-        ui.flash('That district is still cut off.', 'bad');
+        ui.flash('That siege is still cut off.', 'bad');
         return;
-      }
-      if (currentLevel && currentLevel.id !== level.id) {
-        captureCity();
       }
       currentLevel = level;
       save.last = level.order;
-      sim = createSim(level, save.meta, hooks(), save.cities[level.id] || null);
+      reportedKills = 0;
+      reportedCured = 0;
+      sim = createSim(level, save.meta, hooks(), cityForLevel(level, { freshSiege }));
       active = true;
       autosave = 0;
 
@@ -180,79 +228,111 @@ export default {
       ui.hideVictory();
       ui.hideModal();
       ui.danger(false);
-      ui.fromVictory?.(fromVictory);
       world.sync(sim.state, 0);
       persist();
       world.fit();
       ctx.haptic?.(10);
-      ui.flash(`Welcome back to ${level.name}. The city is as you left it.`, 'good');
+      ui.flash(
+        save.city
+          ? `Welcome back to Florence. The city is as you left it.`
+          : 'Florence is yours. Start rebuilding the city.',
+        'good',
+      );
     }
 
     /* ---------------------------------- hooks ---------------------------------- */
 
     function hooks() {
       return {
+        onBuildStart(node) {
+          ui.flash(`Builders begin work on the ${node.label}.`, '');
+          persist();
+        },
         onBuilt(node) {
-          world.burst(node.x, node.z, LIME, 16, 2.6, 1.1);
-          world.ringEffect(node.x, node.z, LIME, 2.4, 0.7);
-          ui.flash(`${node.label} restored.`, 'good');
+          world.burst(node.x, node.z, OLIVE, 16, 2.6, 1.1);
+          world.ringEffect(node.x, node.z, GOLD, 2.8, 0.7);
+          ui.flash(`${node.label} is restored.`, 'good');
+          ctx.haptic?.(10);
+          persist();
+        },
+        onUpgradeStart(node) {
+          ui.flash(`Masons begin raising the ${node.label}.`, '');
+          persist();
+        },
+        onUpgraded(node) {
+          world.burst(node.x, node.z, GOLD, 18, 2.7, 1.1);
+          world.ringEffect(node.x, node.z, AMBER, 3.2, 0.8);
+          ui.flash(`${node.label} is now level ${node.level}.`, 'good');
+          ctx.haptic?.(12);
           persist();
         },
         onRepair(node) {
-          world.burst(node.x, node.z, CYAN, 8, 1.7, 1);
-          ui.flash(`${node.label} repaired.`, 'good');
-          persist();
-        },
-        onBuildStart() {
+          world.burst(node.x, node.z, IRON, 8, 1.7, 1);
+          ui.flash(`${node.label || 'The Palazzo'} repaired.`, 'good');
           persist();
         },
         onDestroyed(node) {
-          world.burst(node.x, node.z, MAGENTA, 22, 3.2, 1.2);
+          world.burst(node.x, node.z, TERRACOTTA, 22, 3.2, 1.2);
           world.shake(ctx.reducedMotion ? 0.1 : 0.55);
           ui.flash(`${node.label} has fallen.`, 'bad');
           persist();
         },
         onBuildingHit(node) {
-          if (Math.random() < 0.4) world.burst(node.x, node.z, AMBER, 3, 1.3, 1.1);
+          if (Math.random() < 0.35) world.burst(node.x, node.z, AMBER, 3, 1.3, 1.1);
         },
         onCureStart(nest) {
-          world.ringEffect(nest.x, nest.z, LIME, 3.4, 0.9);
-          ui.flash('The Infirmary is curing three infected…', '');
+          world.ringEffect(nest.x, nest.z, OLIVE, 3.4, 0.9);
+          ui.flash('The Spezieria is curing three infected…', '');
         },
         onCureDone(nest, result) {
-          world.burst(nest.x, nest.z, LIME, 26, 2.8, 1);
-          world.ringEffect(nest.x, nest.z, LIME, 5, 1.1);
+          world.burst(nest.x, nest.z, OLIVE, 26, 2.8, 1);
+          world.ringEffect(nest.x, nest.z, GOLD, 5, 1.1);
           ui.flash(
             result.gained
-              ? `+${result.gained} survivors · +${result.biomass} biomass`
-              : `No room for survivors · +${result.biomass} biomass`,
+              ? `+${result.gained} citizens · +${result.biomass} biomass`
+              : `No room for citizens · +${result.biomass} biomass`,
             'good',
           );
           ctx.haptic?.(14);
           persist();
         },
         onTrade() {
-          ui.flash('Trade agreed.', 'good');
+          ui.flash('The bargain is struck.', 'good');
           persist();
         },
         onMeta() {
-          ui.flash('Permanent upgrade secured.', 'good');
+          ui.flash('Permanent improvement secured.', 'good');
           persist();
         },
-        onMilitia(count, cap) {
-          ui.flash(`Militia ${count}/${cap} mustered.`, '');
+        onTrain(type, count) {
+          ui.flash(`${count} ${type === 'levy' ? 'Lancieri' : type === 'crossbow' ? 'Balestrieri' : 'Cavalieri'} begin drilling.`, '');
+          persist();
+        },
+        onTrained() {
+          /* The army panel updates live; saving every finished soldier is wasteful. */
+        },
+        onDeploy(zone, type, count) {
+          const name = type === 'levy' ? 'Lancieri' : type === 'crossbow' ? 'Balestrieri' : 'Cavalieri';
+          world.ringEffect(zone.x, zone.z, GOLD, 2.2, 0.6);
+          ui.flash(`${count} ${name} deploy at ${zone.name}.`, 'good');
+          ctx.haptic?.(8);
+          persist();
+        },
+        onRecall(count) {
+          ui.flash(`${count} soldiers return to reserve.`, '');
+          persist();
         },
         onMilitiaDown(unit) {
-          world.burst(unit.x, unit.z, CYAN, 8, 1.8, 0.9);
+          world.burst(unit.x, unit.z, TERRACOTTA, 8, 1.8, 0.9);
         },
         onMilitiaAttack(unit, target, kind) {
-          if (kind === 'bolt') world.shot({ x: unit.x, z: unit.z, kind: 'militia' }, target, AMBER);
+          if (kind === 'bolt') world.shot({ x: unit.x, z: unit.z, kind: 'militia' }, target, GOLD);
         },
         onWaveStart(plan) {
           ui.danger(true);
           ui.hideModal();
           ui.flash(`Horde ${['I', 'II', 'III'][plan.wave - 1]} is coming.`, 'bad');
-          world.ringEffect(sim.state.core.x, sim.state.core.z, MAGENTA, 7, 1.2);
+          world.ringEffect(sim.state.core.x, sim.state.core.z, TERRACOTTA, 7, 1.2);
           world.shake(ctx.reducedMotion ? 0.1 : 0.35);
           ctx.haptic?.([14, 30, 14]);
           persist();
@@ -267,74 +347,64 @@ export default {
             )} materials`,
             'good',
           );
-          world.ringEffect(sim.state.core.x, sim.state.core.z, LIME, 9, 1.4);
+          world.ringEffect(sim.state.core.x, sim.state.core.z, GOLD, 9, 1.4);
           ctx.haptic?.([16, 40, 16]);
         },
         onVictory({ level, stats }) {
           ui.danger(false);
           save.cleared[level.order] = 3;
           save.unlocked = clamp(Math.max(save.unlocked, level.order + 1), 1, 3);
-          save.stats.kills += stats.kills;
-          save.stats.cured += stats.cured;
           persist();
           const next = LEVELS.find((lv) => lv.order === level.order + 1) || null;
           ui.showVictory({
             level,
             stats,
-            totalWaves: 3,
+            totalWaves: save.totalWaves,
             final: level.order === LEVELS.length,
             next,
           });
-          world.ringEffect(sim.state.core.x, sim.state.core.z, LIME, 14, 1.8);
+          world.ringEffect(sim.state.core.x, sim.state.core.z, GOLD, 14, 1.8);
           ctx.haptic?.([20, 60, 20, 60, 30]);
         },
         onDefeat({ level, wave, stats }) {
           ui.danger(true);
-          save.stats.kills += stats.kills;
-          save.stats.cured += stats.cured;
           persist();
           ui.showDefeat({ level, wave, stats });
           ctx.haptic?.([30, 60, 30]);
         },
-        onRally() {
-          ui.danger(false);
-          world.burst(sim.state.core.x, sim.state.core.z, LIME, 22, 2.6, 1.4);
-          ui.flash('The city rallies. Nothing was erased.', 'good');
-          persist();
-        },
         onBossSpawn(unit) {
           ui.showBoss();
           ui.flash(`${unit.name} has entered the city.`, 'bad');
-          world.ringEffect(unit.x, unit.z, MAGENTA, 8, 1.3);
+          world.ringEffect(unit.x, unit.z, TERRACOTTA, 8, 1.3);
           world.shake(ctx.reducedMotion ? 0.1 : 0.6);
           ctx.haptic?.([20, 40, 20, 40, 40]);
         },
         onBossDown(unit) {
           ui.hideBoss();
           world.shake(ctx.reducedMotion ? 0.1 : 0.8);
-          world.burst(unit.x, unit.z, MAGENTA, 46, 4.4, 1.4);
+          world.burst(unit.x, unit.z, TERRACOTTA, 46, 4.4, 1.4);
           world.ringEffect(unit.x, unit.z, AMBER, 12, 1.6);
           ui.flash(`${unit.name} is broken. Hold the line.`, 'good');
         },
         onEnrage() {
-          ui.flash('The boss is enraged.', 'bad');
+          ui.flash('The crowned thing is enraged.', 'bad');
         },
         onSlam(unit) {
           world.shake(ctx.reducedMotion ? 0.08 : 0.35);
-          world.ringEffect(unit.x, unit.z, MAGENTA, 5, 0.6);
-          world.burst(unit.x, unit.z, MAGENTA, 12, 2.4, 0.8);
+          world.ringEffect(unit.x, unit.z, TERRACOTTA, 5, 0.6);
+          world.burst(unit.x, unit.z, TERRACOTTA, 12, 2.4, 0.8);
         },
         onShot(node, target, kind) {
-          world.shot(node, target, kind === 'tower' ? CYAN : AMBER);
+          world.shot(node, target, kind === 'tower' ? GOLD : AMBER);
         },
         onHit(unit, source) {
-          world.burst(unit.x, unit.z, source === 'volley' ? AMBER : LIME, 3, 1.2, 0.7);
+          world.burst(unit.x, unit.z, source === 'volley' ? AMBER : OLIVE, 3, 1.2, 0.7);
         },
         onKill(unit) {
           world.burst(
             unit.x,
             unit.z,
-            unit.boss ? MAGENTA : LIME,
+            unit.boss ? TERRACOTTA : OLIVE,
             unit.boss ? 30 : 7,
             unit.boss ? 4 : 1.8,
             unit.boss ? 1.4 : 0.7,
@@ -345,9 +415,9 @@ export default {
             world.ringEffect(x, z, AMBER, 16, 0.9);
             world.shake(ctx.reducedMotion ? 0.06 : 0.25);
           } else if (id === 'rally') {
-            world.ringEffect(x, z, LIME, 6, 1);
+            world.ringEffect(x, z, OLIVE, 6, 1);
           } else {
-            world.burst(x, z, CYAN, 14, 2, 1.6);
+            world.burst(x, z, GOLD, 14, 2, 1.6);
           }
           ctx.haptic?.(12);
         },
@@ -369,10 +439,15 @@ export default {
         ui.openNest(target.id);
         return;
       }
+      if (target.type === 'zone') {
+        ui.openZone(target.id);
+        return;
+      }
       ui.openNode(target.id);
     }
 
     function callbacks() {
+      const refresh = (force = true) => ui.refresh(sim?.state, save, force);
       return {
         onPickLevel(order) {
           if (active) return;
@@ -403,41 +478,70 @@ export default {
             ui.closeSheet(true);
             world.setSelected({ type: 'node', id });
           }
-          ui.refresh?.(sim?.state, save, true);
+          refresh();
         },
         onRepair(id) {
           const result = sim?.repairNode(id);
           if (!result?.ok) ui.flash(result?.why || 'Cannot repair that yet.', 'bad');
-          ui.refresh?.(sim?.state, save, true);
+          refresh();
+        },
+        onUpgrade(id) {
+          const result = sim?.startUpgrade(id);
+          if (!result?.ok) ui.flash(result?.why || 'Cannot upgrade that yet.', 'bad');
+          else {
+            ui.closeSheet(true);
+            world.setSelected({ type: 'node', id });
+          }
+          refresh();
+        },
+        onUpgradeTrack(track) {
+          const result = sim?.buyUpgrade(track);
+          if (!result?.ok) ui.flash(result?.why || 'Cannot drill that yet.', 'bad');
+          refresh();
         },
         onCure(id) {
           const result = sim?.startCure(id);
           if (!result?.ok) ui.flash(result?.why || 'Cannot cure that nest yet.', 'bad');
-          ui.refresh?.(sim?.state, save, true);
+          refresh();
         },
         onExchange(index) {
           const result = sim?.exchange(index);
           if (!result?.ok) ui.flash(result?.why || 'Not enough goods.', 'bad');
+          refresh();
         },
         onCaravan() {
           const result = sim?.takeCaravan();
           if (!result?.ok) ui.flash(result?.why || 'Not enough goods.', 'bad');
-          ui.refresh?.(sim?.state, save, true);
+          refresh();
         },
         onRoute(id) {
           const result = sim?.buyRoute(id);
           if (!result?.ok) ui.flash(result?.why || 'Cannot open that route.', 'bad');
-          ui.refresh?.(sim?.state, save, true);
+          refresh();
         },
         onGear(id) {
           const result = sim?.buyGear(id);
           if (!result?.ok) ui.flash(result?.why || 'Cannot craft that yet.', 'bad');
-          ui.refresh?.(sim?.state, save, true);
+          refresh();
         },
-        onUpgrade(track) {
-          const result = sim?.buyUpgrade(track);
-          if (!result?.ok) ui.flash(result?.why || 'Cannot train that yet.', 'bad');
-          ui.refresh?.(sim?.state, save, true);
+        onTrain(type, count) {
+          const result = sim?.train(type, count);
+          if (!result?.ok) ui.flash(result?.why || 'Cannot train them yet.', 'bad');
+          refresh();
+        },
+        onCancelTraining(index) {
+          sim?.cancelTraining(index);
+          refresh();
+        },
+        onDeploy(zoneId, type, count) {
+          const result = sim?.deploy(zoneId, type, count);
+          if (!result?.ok) ui.flash(result?.why || 'Cannot deploy there.', 'bad');
+          refresh();
+        },
+        onRecall() {
+          const result = sim?.recallArmy();
+          if (!result?.ok) ui.flash(result?.why || 'Cannot recall yet.', 'bad');
+          refresh();
         },
         onPreviewWave() {
           if (!sim) return;
@@ -447,39 +551,42 @@ export default {
         onStartWave() {
           const result = sim?.startWave();
           if (!result?.ok) ui.flash(result?.why || 'Not now.', 'bad');
-          ui.refresh?.(sim?.state, save, true);
+          refresh();
         },
         onAbility(id) {
           const result = sim?.useAbility(id);
           if (!result?.ok) ui.flash(result?.why || 'Not ready.', 'bad');
-          ui.refresh?.(sim?.state, save, true);
+          refresh();
         },
         onNextLevel(order) {
           flush();
-          enterLevel(order, { fromVictory: true });
+          enterLevel(order, { freshSiege: true });
         },
         onReplay() {
           flush();
-          enterLevel(currentLevel?.order || save.last, { fromVictory: true });
+          enterLevel(currentLevel?.order || save.last, { freshSiege: true });
         },
         onStay() {
           if (!sim) return;
-          if (sim.state.phase === 'victory') sim.state.phase = 'prep';
+          reportStats();
+          if (sim.state.phase === 'victory') {
+            sim.state.phase = 'prep';
+            sim.state.wave = 0;
+          }
           ui.danger(false);
           persist();
-          ui.refresh?.(sim.state, save, true);
+          refresh();
         },
         onRally() {
           const result = sim?.rallyCity();
           if (!result?.ok) return;
           ui.danger(false);
-          world.burst(sim.state.core.x, sim.state.core.z, LIME, 22, 2.6, 1.4);
-          ui.flash('The city rallies. Nothing was erased.', 'good');
+          world.burst(sim.state.core.x, sim.state.core.z, GOLD, 22, 2.6, 1.4);
+          ui.flash('Florence rallies. Nothing was erased.', 'good');
           persist();
-          ui.refresh?.(sim.state, save, true);
+          refresh();
         },
         onRestart() {
-          // Kept for compatibility: the city is never wiped.
           ui.flash('The city is permanent. Keep building.', 'good');
         },
       };
@@ -488,6 +595,7 @@ export default {
     function targetById(type, id) {
       if (!sim) return null;
       if (type === 'nest') return sim.state.nests.find((nest) => nest.id === id) || null;
+      if (type === 'zone') return sim.state.zones.find((zone) => zone.id === id) || null;
       return sim.state.nodes.find((node) => node.id === id) || null;
     }
 
