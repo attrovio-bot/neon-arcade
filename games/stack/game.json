@@ -1,0 +1,18 @@
+{
+  "id": "stack",
+  "order": 1,
+  "name": "Neon Stack",
+  "tagline": "Tap to drop each slab. Dead-centre drops rebuild width — one sliver off the edge and the tower is over.",
+  "version": "1.0.0",
+  "accent": "#22e1ff",
+  "accent2": "#ff2f8e",
+  "art": "stack",
+  "hint": "Tap anywhere to drop",
+  "scoreLabel": "HEIGHT",
+  "controls": ["tap"],
+  "entry": "index.js",
+  "assets": [
+    { "path": "glow.png", "file": "assets/glow.png", "mime": "image/png" },
+    { "path": "noise.png", "file": "assets/noise.png", "mime": "image/png" }
+  ]
+}

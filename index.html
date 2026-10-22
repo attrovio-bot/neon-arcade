@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#05060a" />
+    <meta name="color-scheme" content="dark" />
+    <title>Neon Arcade — games that download themselves</title>
+    <meta
+      name="description"
+      content="A mobile-first arcade. Two Three.js micro-games shipped as versioned binary packs: downloaded on demand, verified, cached for offline play, deletable anytime."
+    />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  </head>
+  <body>
+    <canvas id="bg" aria-hidden="true"></canvas>
+    <div class="vignette" aria-hidden="true"></div>
+
+    <header class="topbar">
+      <a class="brand" href="./" aria-label="Neon Arcade home">
+        <span class="brand-glyph" aria-hidden="true"></span>
+        <span class="brand-name">NEON<em>ARCADE</em></span>
+      </a>
+      <div class="topbar-actions">
+        <button id="storageBtn" class="chip" type="button" aria-haspopup="dialog" aria-controls="sheet">
+          <span class="chip-dot" aria-hidden="true"></span>
+          <span id="storageLabel">no packs</span>
+        </button>
+        <button id="installBtn" class="icon-btn" type="button" hidden>
+          <span aria-hidden="true">↓</span><span class="sr-only">Install app</span>
+        </button>
+      </div>
+    </header>
+
+    <main class="wrap">
+      <section class="hero">
+        <p class="eyebrow"><span class="pulse" aria-hidden="true"></span> shipped by GitHub Actions</p>
+        <h1>Games that<br /><em>download</em><br /><em>themselves.</em></h1>
+        <p class="lede">
+          Tap a game and its binary pack streams straight from GitHub Pages. Verified, unpacked,
+          cached on your device — then playable in airplane mode. Delete it whenever you want the
+          space back.
+        </p>
+        <ul class="hero-stats">
+          <li><strong id="statPacks">—</strong><span>packs in catalog</span></li>
+          <li><strong id="statCache">0 KB</strong><span>cached on device</span></li>
+          <li><strong id="statBest">0</strong><span>best run total</span></li>
+        </ul>
+      </section>
+
+      <section class="shelf" aria-labelledby="shelf-title">
+        <div class="section-head">
+          <h2 class="section-title" id="shelf-title">The shelf</h2>
+          <button id="refreshBtn" class="text-btn" type="button">Check for updates</button>
+        </div>
+        <div class="cards" id="cards" aria-live="polite">
+          <div class="card card--skeleton" aria-hidden="true"></div>
+          <div class="card card--skeleton" aria-hidden="true"></div>
+        </div>
+        <p class="shelf-error" id="shelfError" hidden></p>
+      </section>
+
+      <section class="how" aria-labelledby="how-title">
+        <h2 class="section-title" id="how-title">How the packs work</h2>
+        <ol class="steps">
+          <li>
+            <span class="step-n">01</span>
+            <h3>Stream</h3>
+            <p>A <code>.arcp</code> container arrives over HTTPS with a live byte counter. Cancel any time.</p>
+          </li>
+          <li>
+            <span class="step-n">02</span>
+            <h3>Verify</h3>
+            <p>The browser hashes the payload and compares it with the catalog's SHA-256 before running a single line.</p>
+          </li>
+          <li>
+            <span class="step-n">03</span>
+            <h3>Keep</h3>
+            <p>Bytes go into IndexedDB. Next launch skips the network entirely — even with no signal.</p>
+          </li>
+        </ol>
+      </section>
+
+      <footer class="footer">
+        <p>
+          <span id="buildStamp">—</span> · Three.js · GitHub Pages
+        </p>
+        <p class="footer-links">
+          <a id="repoLink" href="#" rel="noopener">source &amp; packs</a>
+          <button id="resetScoresBtn" class="text-btn" type="button">reset scores</button>
+        </p>
+      </footer>
+    </main>
+
+    <!-- storage / pack manager -->
+    <div class="sheet-backdrop" id="sheetBackdrop" hidden>
+      <section class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+        <button class="sheet-grip" id="sheetClose" type="button" aria-label="Close storage panel"></button>
+        <div class="sheet-head">
+          <h2 id="sheet-title">On this device</h2>
+          <span class="mono" id="sheetUsage">—</span>
+        </div>
+        <div class="storage-bar" aria-hidden="true"><i id="storageBar"></i></div>
+        <p class="sheet-note" id="sheetNote">—</p>
+        <ul class="pack-list" id="packList"></ul>
+        <div class="sheet-actions">
+          <button id="persistBtn" class="btn ghost" type="button">Protect from eviction</button>
+          <button id="clearBtn" class="btn danger" type="button">Delete all packs</button>
+        </div>
+      </section>
+    </div>
+
+    <!-- play surface -->
+    <section class="play" id="play" hidden aria-label="Game">
+      <div class="stage" id="stage"></div>
+
+      <div class="play-hud" id="playHud">
+        <button class="hud-btn" id="exitBtn" type="button" aria-label="Back to arcade">←</button>
+        <div class="hud-score">
+          <span id="hudLabel">SCORE</span>
+          <strong id="hudScore">0</strong>
+          <em id="hudBest">BEST 0</em>
+        </div>
+        <div class="hud-actions">
+          <button class="hud-btn" id="muteBtn" type="button" aria-label="Mute sound">♪</button>
+          <button class="hud-btn" id="pauseBtn" type="button" aria-label="Pause">❚❚</button>
+        </div>
+      </div>
+
+      <div class="play-hint" id="playHint" aria-hidden="true"></div>
+
+      <div class="play-loader" id="loader" hidden>
+        <div class="loader-card">
+          <p class="loader-eyebrow" id="loaderEyebrow">fetching pack</p>
+          <h2 id="loaderTitle">—</h2>
+          <div class="loader-bar"><i id="loaderBar"></i></div>
+          <div class="chunk-strip" id="chunkStrip" aria-hidden="true"></div>
+          <div class="loader-meta">
+            <span id="loaderStatus">connecting…</span>
+            <span class="mono" id="loaderPct">0%</span>
+          </div>
+          <div class="loader-actions">
+            <button id="retryBtn" class="btn primary small" type="button" hidden>Try again</button>
+            <button id="cancelBtn" class="btn ghost small" type="button">Cancel download</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="play-modal" id="over" hidden>
+        <div class="modal-card">
+          <p class="modal-eyebrow" id="overEyebrow">run over</p>
+          <h2 class="modal-score" id="overScore">0</h2>
+          <p class="modal-best" id="overBest">best 0</p>
+          <p class="modal-note" id="overNote"></p>
+          <div class="modal-actions">
+            <button id="againBtn" class="btn primary" type="button">Run again</button>
+            <button id="overExitBtn" class="btn ghost" type="button">Arcade</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="play-modal" id="paused" hidden>
+        <div class="modal-card">
+          <p class="modal-eyebrow">paused</p>
+          <h2 class="modal-title">Take a breath</h2>
+          <p class="modal-note">The game is frozen, battery saved.</p>
+          <div class="modal-actions">
+            <button id="resumeBtn" class="btn primary" type="button">Resume</button>
+            <button id="quitBtn" class="btn ghost" type="button">Quit to arcade</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="toasts" id="toasts" aria-live="polite"></div>
+    <noscript>
+      <p class="noscript">Neon Arcade needs JavaScript to stream and cache its game packs.</p>
+    </noscript>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

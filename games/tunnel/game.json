@@ -1,0 +1,18 @@
+{
+  "id": "tunnel",
+  "order": 2,
+  "name": "Tunnel Run",
+  "tagline": "Drag to steer through a collapsing neon tunnel. Thread the holes, grab the orbs, don't clip the gates.",
+  "version": "1.0.0",
+  "accent": "#ff2f8e",
+  "accent2": "#22e1ff",
+  "art": "tunnel",
+  "hint": "Drag to steer · thread the holes",
+  "scoreLabel": "SCORE",
+  "controls": ["drag"],
+  "entry": "index.js",
+  "assets": [
+    { "path": "glow.png", "file": "assets/glow.png", "mime": "image/png" },
+    { "path": "noise.png", "file": "assets/noise.png", "mime": "image/png" }
+  ]
+}
