@@ -1,5 +1,7 @@
 # Neon Arcade
 
+[![Deploy arcade to GitHub Pages](https://github.com/attrovio-bot/neon-arcade/actions/workflows/deploy.yml/badge.svg)](https://github.com/attrovio-bot/neon-arcade/actions/workflows/deploy.yml)
+
 A mobile-first Three.js arcade where the hub stays tiny and every game arrives as a
 versioned binary pack. Tap a game, watch it stream and verify, then play — online or in
 airplane mode. Delete a pack whenever you want the space back.
