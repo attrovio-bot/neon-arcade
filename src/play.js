@@ -324,6 +324,7 @@ export class Player {
       reducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
       coarsePointer: window.matchMedia('(pointer: coarse)').matches,
       setScore: (value) => this.#setScore(value),
+      saveScore: (value) => this.#saveScore(value),
       setLabel: (label) => {
         this.hudLabel.textContent = label;
       },
@@ -384,6 +385,19 @@ export class Player {
     if (this.score > this.best) {
       this.hudBest.textContent = `BEST ${formatCount(this.score)}`;
     }
+  }
+
+  /**
+   * Games with their own progress (a persistent city, a campaign) can commit a
+   * best immediately instead of waiting for the run to end.
+   */
+  #saveScore(value) {
+    const score = Math.max(0, Math.round(value));
+    if (!this.meta || !(score > 0)) return;
+    if (!writeScore(this.meta.id, score)) return;
+    this.best = score;
+    this.hudBest.textContent = `BEST ${formatCount(this.best)}`;
+    this.onScoresChanged?.();
   }
 
   #gameOver({ score, note = '', delay = 0.9 } = {}) {

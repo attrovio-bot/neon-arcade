@@ -33,6 +33,7 @@ let deferredPrompt = null;
 const GLYPHS = {
   stack: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="3.5" y="15.5" width="17" height="4" rx="1.2"/><rect x="6" y="10.2" width="12" height="4" rx="1.2"/><rect x="8.5" y="4.9" width="7" height="4" rx="1.2"/></svg>`,
   tunnel: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/></svg>`,
+  firenze: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h18"/><path d="M5.5 20v-7h13v7"/><path d="M9.5 20v-4h5v4"/><path d="M12 4v3"/><path d="M8.4 10a3.6 3.6 0 0 1 7.2 0"/><path d="M6.2 13h11.6"/></svg>`,
 };
 
 function h(tag, className, text) {

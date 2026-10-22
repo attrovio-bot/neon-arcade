@@ -12,6 +12,7 @@ Live: **https://attrovio-bot.github.io/neon-arcade/**
 | --- | --- | --- |
 | **Neon Stack** | Drop sliding slabs, keep the tower alive, win width back with dead-centre drops. | Tap |
 | **Tunnel Run** | Steer a ship through collapsing neon gates, thread the holes, grab orbs. | Drag / keys |
+| **Firenze: Last Light** | Rebuild a ruined neon Florence, cure the infected, trade, craft and hold off three hordes per district. The city is saved on your device. | Tap / drag |
 
 ## How it works
 
@@ -25,7 +26,8 @@ GitHub Pages
 └─ /packs/
    ├─ index.json         catalog: id, version, file, size, sha256
    ├─ stack-1.0.0.arcp   Neon Stack
-   └─ tunnel-1.0.0.arcp  Tunnel Run
+   ├─ tunnel-1.0.0.arcp  Tunnel Run
+   └─ firenze-1.0.0.arcp Firenze: Last Light
 ```
 
 Tapping a game:
@@ -58,9 +60,31 @@ offset 12  JSON header     id, name, version, art, controls, asset table,
 Building (`scripts/build-packs.mjs`) bundles each `games/<id>/index.js` with esbuild
 (minified ESM, Three.js included), gzips it, appends declared assets, wraps it in the
 container and writes `public/packs/<id>-<version>.arcp` plus `index.json`. Packs are
-budgeted at 2 MB; the two shipped packs are ~137 KB each. Assets (glow/noise textures,
-icons) are generated at build time by a dependency-free PNG writer in `scripts/png.mjs`,
-so no binary art is committed.
+budgeted at 2 MB; the three shipped packs are ~137–164 KB each. Assets (glow/noise
+textures, icons) are generated at build time by a dependency-free PNG writer in
+`scripts/png.mjs`, so no binary art is committed.
+
+## Firenze: Last Light
+
+A compact real-time strategy game about holding a city together after the outbreak.
+Each of the three districts (Oltrarno, Santa Croce, Duomo) has three hordes, and the
+third always brings a boss. You choose when to ring the bell.
+
+- **Rebuild** ruined houses, farms, quarries, furnaces, infirmaries, barracks,
+  markets, workshops and watchtowers. Citizens staff them automatically, in priority
+  order `clinic → farm → quarry → furnace → market → workshop`.
+- **Cure** three infected from a nest to gain survivors and biomass, and to make the
+  next horde smaller. Biomass burns for energy at the furnace.
+- **Trade** through caravans, permanent routes and fixed exchanges. The Bottega
+  crafts gear and trains militia ranks.
+- **Fight** with auto-battling militia and towers, plus three cooldown abilities.
+- **Persist** the whole city in `localStorage` under
+  `neon-arcade:firenze:city:v1`: every plot, store, survivor, nest count and wave.
+  A lost horde withdraws, patches the landmark and leaves the city intact. Nothing
+  resets or restarts the district — the same Florence is there next launch.
+  Permanent gear, routes and upgrades live in the same save.
+- The arcade best for this pack is the total number of hordes held (0–9), committed
+  through `ctx.saveScore()` as soon as it grows.
 
 ## Local development
 
@@ -83,8 +107,8 @@ npm run smoke              # in another; screenshots land in shots/
 ```
 
 The smoke test covers catalog render, download/verify/cache, gameplay and scoring,
-retry, offline relaunch from IndexedDB, the storage sheet, pack deletion and
-tamper rejection.
+retry, offline relaunch from IndexedDB, Firenze's persistent city, the storage sheet,
+pack deletion and tamper rejection.
 
 ## Adding a game
 
@@ -93,7 +117,7 @@ tamper rejection.
    ```json
    {
      "id": "orbit",
-     "order": 3,
+     "order": 4,
      "name": "Orbit",
      "tagline": "One-line pitch shown on the card.",
      "version": "1.0.0",
@@ -115,7 +139,8 @@ tamper rejection.
      init(ctx) {
        // ctx: stage, meta, width, height, dpr, assets.url(path), audio, haptic,
        //      best, reducedMotion, coarsePointer,
-       //      setScore(n), setLabel(text), gameOver({ score, note, delay }), toast(msg)
+       //      setScore(n), saveScore(n), setLabel(text),
+       //      gameOver({ score, note, delay }), toast(msg)
        return {
          update(dt) {},
          render() {},
@@ -129,12 +154,16 @@ tamper rejection.
 3. `npm run build`. The pack and catalog entry are generated automatically; bump
    `version` to make existing installs show **update available**.
 
-`art` selects the cover styling (`stack`, `tunnel`, or a custom drawing key in
-`src/main.js`); `accent`/`accent2` theme the card, loader and HUD.
+`art` selects the cover styling (`stack`, `tunnel`, `firenze`, or a custom drawing key
+in `src/main.js`); `accent`/`accent2` theme the card, loader and HUD.
 
 ## Storage and privacy
 
-- Only installed packs and best scores are stored, locally in IndexedDB.
+- Installed packs and best scores live locally in IndexedDB.
+- Firenze keeps its city in `localStorage` (`neon-arcade:firenze:city:v1`):
+  buildings, survivors, stores, nests, wave progress and permanent upgrades. It
+  survives reloads, losses and pack updates, and is only removed if you clear site
+  data or browser storage.
 - **Storage** in the hub shows usage, requests persistent storage, and deletes one
   pack or everything.
 - Deleting a pack removes its header and payload; best scores stay on the device.

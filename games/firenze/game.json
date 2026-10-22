@@ -1,0 +1,14 @@
+{
+  "id": "firenze",
+  "order": 3,
+  "name": "Firenze: Last Light",
+  "tagline": "Rebuild a ruined Florence, cure the infected, and hold the line when the horde comes.",
+  "version": "1.0.0",
+  "accent": "#b9ff4d",
+  "accent2": "#ff2f8e",
+  "art": "firenze",
+  "hint": "Tap ruins to rebuild · cure the nests · start the horde when ready",
+  "scoreLabel": "WAVES",
+  "controls": ["tap", "drag"],
+  "entry": "index.js"
+}

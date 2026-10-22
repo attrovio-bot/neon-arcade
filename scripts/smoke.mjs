@@ -54,7 +54,7 @@ try {
 
   const cards = await page.locator('.card').count();
   console.log(`  cards: ${cards}`);
-  if (cards !== 2) throw new Error(`expected 2 cards, saw ${cards}`);
+  if (cards !== 3) throw new Error(`expected 3 cards, saw ${cards}`);
 
   step('download + verify + launch Neon Stack');
   const cdp = await context.newCDPSession(page);
@@ -133,6 +133,28 @@ try {
   const tunnelScore = await page.textContent('#hudScore');
   console.log(`  tunnel score: ${tunnelScore}`);
   if (Number(tunnelScore.replace(/\D/g, '')) < 1) throw new Error('tunnel score stayed at zero');
+  await leaveGame();
+
+  step('Firenze boots and persists its city');
+  await page.locator('.card', { hasText: 'Firenze' }).locator('.btn.primary').click();
+  await page.waitForSelector('.fz-start:not([hidden])', { timeout: 40000 });
+  await page.waitForTimeout(700);
+  await shot('10-firenze-start');
+  const cityLine = await page.textContent('.fz-saved');
+  if (!/saved on this device/i.test(cityLine)) throw new Error('Firenze did not advertise its local save');
+  await page.click('.fz-enter');
+  await page.waitForSelector('.fz-top:not([hidden])', { timeout: 10000 });
+  await page.waitForTimeout(3600);
+  await shot('10b-firenze-city');
+  const citySave = await page.evaluate(() => {
+    const raw = localStorage.getItem('neon-arcade:firenze:city:v1');
+    if (!raw) return null;
+    const save = JSON.parse(raw);
+    return save?.cities?.oltrarno ?? null;
+  });
+  if (!citySave) throw new Error('Firenze city was not written to localStorage');
+  if (!(citySave.nodes || []).length) throw new Error('Firenze save has no buildings');
+  console.log(`  city saved: ${citySave.nodes.length} plots, ${citySave.citizens} survivors`);
   await leaveGame();
 
   step('storage sheet');
