@@ -7,7 +7,7 @@
  * Simulation lives in battle.js, drawing in render.js, DOM screens in ui.js.
  */
 
-import { LEVELS, DEPLOY_REPEAT } from './data.js';
+import { LEVELS, DEPLOY_REPEAT, THEMES } from './data.js';
 import {
   createBattle,
   updateBattle,
@@ -113,13 +113,14 @@ export default {
       onNextLevel: (order) => gotoArmy(order),
     });
 
-    const renderer = createRenderer(stage);
+    const renderer = createRenderer(stage, { reducedMotion: ctx.reducedMotion });
 
     let screen = 'levels'; // levels | army | battle | result
     let currentLevel = LEVELS[0];
     let battle = null;
     let preview = null;
-    let previewTheme = null;
+    let previewTheme = THEMES.grass;
+    let previewThemeKey = 'grass';
 
     const totalStars = () => Object.values(save.stars).reduce((a, b) => a + b, 0);
     function commitScore() {
@@ -130,7 +131,8 @@ export default {
 
     function backdrop(level) {
       preview = createBattle(level, { preview: true });
-      previewTheme = level.theme;
+      previewTheme = THEMES[level.theme] || THEMES.grass;
+      previewThemeKey = level.theme;
     }
 
     function gotoLevels() {
@@ -272,6 +274,7 @@ export default {
         renderer.draw({
           battle: source,
           theme: previewTheme,
+          themeKey: previewThemeKey,
           mode: screen,
           pointer: pointer.active ? pointer : null,
           dim: screen === 'battle' ? 0 : 0.55,

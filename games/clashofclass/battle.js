@@ -31,6 +31,13 @@ const key = (cx, cy) => `${cx},${cy}`;
 const dist2 = (a, b) => (a.x - b.x) ** 2 + (a.y - b.y) ** 2;
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
+function lerpAngle(a, b, t) {
+  let d = (b - a) % (Math.PI * 2);
+  if (d > Math.PI) d -= Math.PI * 2;
+  if (d < -Math.PI) d += Math.PI * 2;
+  return a + d * t;
+}
+
 let uid = 1;
 
 /* ------------------------------- construction ------------------------------ */
@@ -91,6 +98,7 @@ export function createBattle(level, { army = null, hooks = {}, preview = false }
         cooldown: 0.4 + Math.random() * 0.6,
         aim: -Math.PI / 2,
         flash: 0,
+        dying: 0,
       };
       if (isDefense) {
         building.dmg = base.dmg * power;
@@ -156,6 +164,9 @@ export function deployUnit(state, typeId, x, y) {
     moving: false,
     air: def.air,
     flash: 0,
+    atkAnim: 0,
+    atkDir: { x: 1, y: 0 },
+    deathT: 0,
   };
 
   row.count -= 1;
@@ -287,6 +298,7 @@ function damageBuilding(state, building, amount) {
       state.fx.push({ k: 'boom', x: building.x, y: building.y, scale: 0.7, life: 0.45 });
       state.hooks.onSound?.('rubble');
     } else {
+      building.dying = 0.4;
       state.fx.push({
         k: 'boom',
         x: building.x,
@@ -294,6 +306,7 @@ function damageBuilding(state, building, amount) {
         scale: building.type === 'town_hall' ? 1.8 : 1.05,
         life: building.type === 'town_hall' ? 0.9 : 0.6,
       });
+      state.fx.push({ k: 'debris', x: building.x, y: building.y, life: 0.5 });
       state.shake = Math.max(state.shake, building.type === 'town_hall' ? 1 : 0.25);
       state.hooks.onSound?.('boom');
       state.hooks.onDestroy?.(building);
@@ -310,6 +323,7 @@ function damageUnit(state, unit, amount) {
   unit.flash = 0.14;
   if (unit.hp <= 0) {
     unit.hp = 0;
+    unit.deathT = 0.35;
     state.kills += 1;
     state.fx.push({ k: 'unitdown', x: unit.x, y: unit.y, life: 0.4 });
     state.hooks.onSound?.('poof');
@@ -336,10 +350,13 @@ function strike(state, unit, target, dirx, diry) {
   }
 
   const dmg = def.dmg * (target.wall ? def.wallBonus ?? 1 : 1);
+  const dl = Math.hypot(dirx, diry) || 1;
+  unit.atkAnim = 0.14;
+  unit.atkDir = { x: dirx / dl, y: diry / dl };
   if (def.range > 1.4) {
     state.fx.push({
       k: 'shot',
-      kind: def.id === 'wizard' ? 'bolt' : 'arrow',
+      kind: def.id === 'wizard' ? 'bolt' : def.id === 'dragon' ? 'breath' : 'arrow',
       x1: unit.x,
       y1: unit.y,
       x2: target.x,
@@ -486,7 +503,7 @@ function updateUnits(state, dt) {
     if (unit.def.heals) updateHealer(state, unit, dt);
     else updateFighter(state, unit, dt);
   }
-  state.units = state.units.filter((unit) => unit.hp > 0);
+  state.units = state.units.filter((unit) => unit.hp > 0 || unit.deathT > 0);
 }
 
 function separate(state) {
@@ -495,7 +512,7 @@ function separate(state) {
     const a = units[i];
     for (let j = i + 1; j < units.length; j++) {
       const b = units[j];
-      if (a.air !== b.air) continue;
+      if (a.air !== b.air || a.hp <= 0 || b.hp <= 0) continue;
       const min = a.air ? 0.5 : 0.4;
       let dx = b.x - a.x;
       let dy = b.y - a.y;
@@ -551,21 +568,28 @@ function updateDefenses(state, dt) {
   for (const defense of state.buildings) {
     if (!defense.alive || defense.kind !== 'defense') continue;
     defense.flash = Math.max(0, defense.flash - dt);
+    const target = pickUnitTarget(state, defense);
+    if (target) {
+      // Barrels sweep toward their mark instead of snapping around.
+      defense.aim = lerpAngle(
+        defense.aim,
+        Math.atan2(target.y - defense.y, target.x - defense.x),
+        Math.min(1, 7 * dt),
+      );
+    }
     if (defense.cooldown > 0) {
       defense.cooldown -= dt;
       continue;
     }
-    const target = pickUnitTarget(state, defense);
     if (!target) continue;
     defense.cooldown = defense.atk;
-    defense.aim = Math.atan2(target.y - defense.y, target.x - defense.x);
 
     const flight = defense.shot === 'shell' ? 0.75 : 0.16;
     state.projectiles.push({
       id: uid++,
       kind: defense.shot,
-      x: defense.x,
-      y: defense.y,
+      x: defense.x + Math.cos(defense.aim) * 0.5,
+      y: defense.y + Math.sin(defense.aim) * 0.5,
       tx: target.x,
       ty: target.y,
       target,
@@ -646,14 +670,40 @@ export function finishBattle(state, { retreat = false } = {}) {
     thDown: state.thDown,
     kills: state.kills,
   };
+  if (state.result.won) {
+    for (let i = 0; i < 3; i++) {
+      state.fx.push({
+        k: 'star',
+        x: 3 + Math.random() * 12,
+        y: 2.5 + Math.random() * 9,
+        life: 1.8,
+        big: true,
+      });
+    }
+  }
   state.hooks.onSound?.('end');
   state.hooks.onEnd?.(state.result);
   return state.result;
 }
 
 export function updateBattle(state, dt) {
-  if (state.preview || state.phase === 'over') return;
+  if (state.preview) return;
   state.shake = Math.max(0, state.shake - dt * 1.6);
+
+  // Cosmetics keep ticking after the whistle so collapses and the last
+  // corpses finish their animation behind the result modal.
+  for (const building of state.buildings) {
+    if (building.dying > 0) building.dying -= dt;
+    if (building.flash > 0) building.flash -= dt;
+  }
+  for (const unit of state.units) {
+    if (unit.hp <= 0) unit.deathT -= dt;
+    else if (unit.atkAnim > 0) unit.atkAnim -= dt;
+  }
+  if (state.phase === 'over') {
+    state.units = state.units.filter((unit) => unit.hp > 0 || unit.deathT > 0);
+    return;
+  }
 
   if (state.started) {
     state.timeLeft -= dt;

@@ -191,6 +191,18 @@ const CSS = `
 .cc-flash.show{opacity:1;transform:translate(-50%,0)}
 .cc-flash.good{border-color:rgba(120,214,75,.5);color:#d9f2b6}
 .cc-flash.bad{border-color:rgba(229,83,60,.5);color:#f2b9a8}
+
+/* motion -------------------------------------------------------------- */
+.cc-level{transition:transform .12s,border-color .12s}
+.cc-level:hover{transform:translateY(-2px);border-color:rgba(242,197,61,.45)}
+.cc-unit{transition:transform .12s,border-color .12s}
+.cc-unit:hover{transform:translateY(-1px);border-color:rgba(242,197,61,.45)}
+.cc-card{animation:ccin .3s cubic-bezier(.2,1.4,.4,1)}
+@keyframes ccin{from{transform:scale(.9) translateY(10px);opacity:0}}
+.cc-slot.is-on{animation:ccsel 1.1s ease-in-out infinite}
+@keyframes ccsel{50%{box-shadow:0 0 18px rgba(242,197,61,.5)}}
+.cc-bigstars span.on{animation:ccstarpop .5s cubic-bezier(.2,1.6,.4,1) both}
+@keyframes ccstarpop{0%{transform:scale(.2) rotate(-30deg);opacity:0}60%{transform:scale(1.35) rotate(8deg)}100%{transform:scale(1) rotate(0)}}
 `;
 
 /* --------------------------------- helpers -------------------------------- */
@@ -273,13 +285,45 @@ function drawMapThumb(canvas, level) {
   const theme = THEMES[level.theme] || THEMES.grass;
   g.fillStyle = theme.grassDark;
   g.fillRect(0, 0, w, h);
+  // deterministic speckle so every card keeps its own texture
+  let seed = level.order * 991 + 17;
+  const rand = () => {
+    seed = (seed * 16807 + 11) % 2147483647;
+    return seed / 2147483647;
+  };
+  g.fillStyle = theme.grassLight;
+  for (let i = 0; i < 40; i++) g.fillRect(rand() * w, rand() * h, 1.5, 1.5);
+  // packed earth under the village
+  g.fillStyle = theme.baseTint;
+  g.fillRect(1, 1, 14 * cell - 2, 14 * cell - 2);
+  g.strokeStyle = 'rgba(0,0,0,0.25)';
+  g.strokeRect(1, 1, 14 * cell - 2, 14 * cell - 2);
   for (let y = 0; y < 14; y++) {
     const row = level.map[y] ?? '';
     for (let x = 0; x < 14; x++) {
       const type = CELL_TYPES[row[x]];
       if (!type) continue;
-      g.fillStyle = CELL_COLORS[type] || '#888';
-      g.fillRect(x * cell + 0.5, y * cell + 0.5, cell - 1, cell - 1);
+      const px = x * cell + 1;
+      const py = y * cell + 1;
+      const s = cell - 2;
+      if (type === 'wall') {
+        g.fillStyle = '#8d8676';
+        g.fillRect(px, py, s, s);
+        g.fillStyle = '#b5ad9a';
+        g.fillRect(px, py, s, 2);
+      } else if (type === 'town_hall') {
+        g.fillStyle = '#f2c53d';
+        g.beginPath();
+        g.roundRect(px, py, s, s, 2);
+        g.fill();
+        g.fillStyle = '#fff2c4';
+        g.fillRect(px + s / 2 - 1, py + s / 2 - 1, 2, 2);
+      } else {
+        g.fillStyle = CELL_COLORS[type] || '#888';
+        g.beginPath();
+        g.roundRect(px, py, s, s, 2);
+        g.fill();
+      }
     }
   }
 }

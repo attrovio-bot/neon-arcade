@@ -4,13 +4,17 @@
  * Draws the 18x18 battlefield (a 14x14 village on a 2-cell deploy ring) with
  * pre-rendered pixel sprites, a procedural ground texture per level theme,
  * health bars, projectiles and a hand-rolled particle layer.
+ *
+ * Animation is all state-driven from the simulation plus a few renderer-side
+ * cosmetics: units flip between walk frames, lunge when they strike and topple
+ * over when they die; buildings darken, crack, smoke, recoil and finally
+ * collapse before turning to rubble; mortars trail smoke, rockets trail flame;
+ * each theme drifts its own ambient weather (pollen, dust, snow).
  */
 
 import { GRID, OFFSET, FIELD, THEMES } from './data.js';
 import { getSprite, BUILDING_SIZE } from './sprites.js';
 import { isDeployable } from './battle.js';
-
-const VILLAGE = OFFSET + GRID;
 
 function buildGround(theme) {
   const node = document.createElement('canvas');
@@ -40,7 +44,8 @@ function buildGround(theme) {
   return node;
 }
 
-export function createRenderer(stage) {
+export function createRenderer(stage, opts = {}) {
+  const reducedMotion = Boolean(opts?.reducedMotion);
   const canvas = document.createElement('canvas');
   canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none';
   stage.appendChild(canvas);
@@ -58,6 +63,7 @@ export function createRenderer(stage) {
   let clock = 0;
   let shakeX = 0;
   let shakeY = 0;
+  let ambientT = 0;
 
   function resize(w, h, ratio) {
     width = Math.max(1, w);
@@ -123,6 +129,71 @@ export function createRenderer(stage) {
     rings.push({ x, y, r: 0.4, vr: speed, life, max: life, color, w: widthPx });
   }
 
+  function spawnSmoke(x, y, big = false) {
+    if (particles.length > 400) return;
+    particles.push({
+      x: x + (Math.random() - 0.5) * 0.3,
+      y,
+      vx: (Math.random() - 0.5) * 0.2,
+      vy: -(0.25 + Math.random() * 0.3),
+      g: 0,
+      life: 1.1 + Math.random() * 0.5,
+      max: 1.6,
+      size: (big ? 3.2 : 2.2) * (0.7 + Math.random() * 0.6),
+      color: Math.random() < 0.5 ? '#6f6a5e' : '#8a8578',
+      alpha: 0.5,
+    });
+  }
+
+  function spawnAmbient(themeKey) {
+    if (particles.length > 360) return;
+    if (themeKey === 'snow') {
+      particles.push({
+        x: Math.random() * FIELD,
+        y: -0.3,
+        vx: -0.1 - Math.random() * 0.15,
+        vy: 0.6 + Math.random() * 0.4,
+        g: 0,
+        life: 22,
+        max: 22,
+        size: 1.2 + Math.random() * 1.2,
+        color: '#ffffff',
+        alpha: 0.85,
+        sway: true,
+        seed: Math.random() * 10,
+      });
+    } else if (themeKey === 'sand') {
+      particles.push({
+        x: -0.3,
+        y: Math.random() * FIELD,
+        vx: 1.4 + Math.random() * 0.8,
+        vy: 0.03,
+        g: 0,
+        life: 6,
+        max: 6,
+        size: 1.1 + Math.random(),
+        color: '#e8c98f',
+        alpha: 0.3,
+      });
+    } else {
+      particles.push({
+        x: Math.random() * FIELD,
+        y: Math.random() * FIELD,
+        vx: 0.1 + Math.random() * 0.15,
+        vy: -(0.12 + Math.random() * 0.18),
+        g: 0,
+        life: 4,
+        max: 4,
+        size: 1.1,
+        color: '#d9ff9e',
+        alpha: 0.5,
+        glow: true,
+        sway: true,
+        seed: Math.random() * 10,
+      });
+    }
+  }
+
   function consumeFx(battle) {
     if (!battle?.fx?.length) return;
     for (const fx of battle.fx) {
@@ -134,6 +205,9 @@ export function createRenderer(stage) {
         case 'boom':
           spawnBurst(fx.x, fx.y, Math.round(14 * (fx.scale || 1)), ['#ffd15a', '#ff8a3d', '#5a5149', '#2b2622'], 4.4 * (fx.scale || 1), 0.7 * (fx.scale || 1), 2.8);
           spawnRing(fx.x, fx.y, 'rgba(255,190,90,0.8)', 5.5 * (fx.scale || 1), 0.5, 2);
+          break;
+        case 'debris':
+          spawnBurst(fx.x, fx.y, 10, ['#8a6a4a', '#6f5a40', '#a89878', '#5d574c'], 3.4, 0.6, 2.2);
           break;
         case 'hit':
           spawnBurst(fx.x, fx.y, 3, ['#ffe08a', '#d8c8a8'], 2.2, 0.3, 1.6);
@@ -149,9 +223,38 @@ export function createRenderer(stage) {
           spawnRing(fx.x, fx.y, 'rgba(255,215,90,0.95)', 7, 0.7, 3);
           spawnBurst(fx.x, fx.y, 16, ['#ffe58a', '#ffc83d', '#fff7d2'], 3.6, 0.9, 2);
           break;
-        case 'shot':
-          strokes.push({ x1: fx.x1, y1: fx.y1, x2: fx.x2, y2: fx.y2, life: fx.life ?? 0.16, max: fx.life ?? 0.16, color: fx.kind === 'bolt' ? '#d79bff' : '#f3e6c6', w: 1.4 });
+        case 'shot': {
+          const breath = fx.kind === 'breath';
+          strokes.push({
+            x1: fx.x1,
+            y1: fx.y1,
+            x2: fx.x2,
+            y2: fx.y2,
+            life: fx.life ?? 0.16,
+            max: fx.life ?? 0.16,
+            color: fx.kind === 'bolt' ? '#d79bff' : breath ? 'rgba(255,150,60,0.95)' : '#f3e6c6',
+            w: breath ? 3 : 1.4,
+          });
+          if (breath) {
+            for (let i = 0; i < 7; i++) {
+              const t = i / 6;
+              particles.push({
+                x: fx.x1 + (fx.x2 - fx.x1) * t,
+                y: fx.y1 + (fx.y2 - fx.y1) * t,
+                vx: (Math.random() - 0.5) * 0.4,
+                vy: -0.3 - Math.random() * 0.3,
+                g: -0.1,
+                life: 0.35,
+                max: 0.35,
+                size: 2 + Math.random() * 2,
+                color: ['#ffb03a', '#ff7a3d', '#ffe08a'][(Math.random() * 3) | 0],
+                glow: true,
+                alpha: 0.9,
+              });
+            }
+          }
           break;
+        }
         case 'slash':
           strokes.push({ x1: fx.x, y1: fx.y, x2: fx.x + Math.cos(fx.a) * 0.5, y2: fx.y + Math.sin(fx.a) * 0.5, life: 0.13, max: 0.13, color: '#fff3c4', w: 2.2 });
           break;
@@ -210,7 +313,7 @@ export function createRenderer(stage) {
     const remainingTroops = battle.queue.reduce((sum, row) => sum + row.count, 0);
     if (!remainingTroops && battle.phase === 'fight') return;
     const cell = layout.cell;
-    const pulse = 0.7 + Math.sin(clock * 3.2) * 0.18;
+    const pulse = reducedMotion ? 0.72 : 0.7 + Math.sin(clock * 3.2) * 0.18;
     const innerX = layout.x + OFFSET * cell;
     const innerY = layout.y + OFFSET * cell;
     const innerW = GRID * cell;
@@ -240,6 +343,7 @@ export function createRenderer(stage) {
     ctx.strokeStyle = theme.zoneLine;
     ctx.lineWidth = 1.4;
     ctx.setLineDash([cell * 0.35, cell * 0.3]);
+    ctx.lineDashOffset = reducedMotion ? 0 : -clock * 26;
     ctx.strokeRect(innerX, innerY, innerW, innerW);
     ctx.restore();
   }
@@ -261,6 +365,19 @@ export function createRenderer(stage) {
     ctx.fillRect(left, y, w * Math.max(0, ratio), h);
   }
 
+  function drawDyingBuilding(building, x, y, cell) {
+    const p = 1 - Math.max(0, building.dying) / 0.4; // 0 → 1 as it collapses
+    const sprite = getSprite(building.type);
+    const size = cell * (building.type === 'town_hall' ? 1.52 : 1.4);
+    ctx.save();
+    ctx.translate(x, y + cell * 0.12 * p);
+    ctx.rotate(p * 0.3 * (building.id % 2 ? 1 : -1));
+    ctx.globalAlpha = Math.max(0, 1 - p * 0.6);
+    ctx.drawImage(sprite, -size / 2, -size * 0.58 - cell * 0.1 * p, size, size);
+    ctx.restore();
+    if (Math.random() < 0.25) spawnSmoke(x + (Math.random() - 0.5) * size, y - size * 0.4, true);
+  }
+
   function drawBuildings(battle) {
     if (!battle) return;
     const cell = layout.cell;
@@ -269,6 +386,10 @@ export function createRenderer(stage) {
       const { x, y } = cellPos(building.cx, building.cy);
       if (!building.alive) {
         if (!building.wall) {
+          if (building.dying > 0) {
+            drawDyingBuilding(building, x, y, cell);
+            continue;
+          }
           drawShadow(x, y + cell * 0.16, cell * 0.34);
           const rubble = getSprite('rubble');
           const size = cell * 1.05;
@@ -277,27 +398,82 @@ export function createRenderer(stage) {
         continue;
       }
       drawShadow(x, y + cell * 0.18, cell * 0.36);
-      if (building.wall) {
-        const size = cell * 1.02;
-        ctx.drawImage(getSprite('wall'), x - size / 2, y - size / 2, size, size);
-        continue;
-      }
-      const size = cell * (building.type === 'town_hall' ? 1.52 : 1.4);
-      const sprite = getSprite(building.type);
-      ctx.drawImage(sprite, x - size / 2, y - size * 0.58, size, size);
 
-      if (building.kind === 'defense' && building.type === 'cannon') {
+      const isWall = building.wall;
+      const size = cell * (building.type === 'town_hall' ? 1.52 : 1.4);
+      const drawSize = isWall ? cell * 1.02 : size;
+      const sprite = getSprite(isWall ? 'wall' : building.type);
+      ctx.drawImage(sprite, x - drawSize / 2, y - (isWall ? drawSize * 0.5 : size * 0.58), drawSize, drawSize);
+
+      if (!isWall && building.kind === 'defense' && building.type === 'cannon') {
         const barrel = getSprite('cannonBarrel');
         const scale = size / BUILDING_SIZE;
+        const aim = building.aim ?? -Math.PI / 2;
+        const recoil = building.flash > 0 ? (building.flash / 0.16) * cell * 0.07 : 0;
         ctx.save();
-        ctx.translate(x, y - cell * 0.18);
-        ctx.rotate(building.aim ?? -Math.PI / 2);
+        ctx.translate(x - Math.cos(aim) * recoil, y - cell * 0.18 - Math.sin(aim) * recoil);
+        ctx.rotate(aim);
         ctx.drawImage(barrel, -2 * scale, -barrel.height * scale * 0.5, barrel.width * scale, barrel.height * scale);
         ctx.restore();
       }
 
-      drawHealth(x, y - cell * 0.62, building.hp / building.maxHp, cell * 0.92);
+      if (building.flash > 0) {
+        ctx.globalAlpha = (building.flash / 0.16) * 0.4;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(x - drawSize * 0.5, y - drawSize * 0.6, drawSize, drawSize);
+        ctx.globalAlpha = 1;
+      }
+
+      const ratio = building.hp / building.maxHp;
+      if (ratio < 0.985) {
+        // Battle damage: scorch, cracks, then smoke when it gets critical.
+        ctx.globalAlpha = (1 - ratio) * 0.34;
+        ctx.fillStyle = '#160d06';
+        ctx.fillRect(x - drawSize * 0.5, y - drawSize * 0.6, drawSize, drawSize);
+        ctx.globalAlpha = 1;
+        if (ratio < 0.55) {
+          ctx.strokeStyle = 'rgba(24, 14, 6, 0.85)';
+          ctx.lineWidth = Math.max(1, cell * 0.045);
+          ctx.beginPath();
+          ctx.moveTo(x - cell * 0.26, y - cell * 0.5);
+          ctx.lineTo(x - cell * 0.12, y - cell * 0.28);
+          ctx.lineTo(x - cell * 0.2, y - cell * 0.05);
+          ctx.moveTo(x + cell * 0.22, y - cell * 0.48);
+          ctx.lineTo(x + cell * 0.3, y - cell * 0.24);
+          ctx.lineTo(x + cell * 0.18, y - cell * 0.08);
+          ctx.stroke();
+        }
+        if (!isWall && ratio < 0.5 && Math.random() < 0.06) {
+          spawnSmoke(x + (Math.random() - 0.5) * cell * 0.6, y - cell * 0.55);
+        }
+      }
+
+      if (!isWall && building.type === 'wizard_tower') {
+        const pulse = 0.22 + Math.sin(clock * 4 + building.id) * 0.12;
+        ctx.globalAlpha = pulse;
+        ctx.fillStyle = '#9be8ff';
+        ctx.beginPath();
+        ctx.arc(x, y - size * 0.62, cell * 0.16, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+      if (!isWall && building.type === 'air_defense') {
+        const blink = Math.sin(clock * 5 + building.id) > 0.4 ? 0.85 : 0.25;
+        ctx.globalAlpha = blink;
+        ctx.fillStyle = '#ff5a4a';
+        ctx.beginPath();
+        ctx.arc(x, y - size * 0.6, cell * 0.07, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+
+      drawHealth(x, y - cell * 0.62, ratio, cell * 0.92);
     }
+  }
+
+  function frameFor(unit) {
+    const wingy = unit.air || unit.type === 'wallbreaker';
+    return Math.floor(unit.bob * (wingy ? 1.15 : 1.2)) % 2;
   }
 
   function drawUnits(battle) {
@@ -306,15 +482,41 @@ export function createRenderer(stage) {
     const sorted = [...battle.units].sort((a, b) => a.y - b.y);
     for (const unit of sorted) {
       const { x, y } = fieldPos(unit.x, unit.y);
-      const lift = unit.air ? cell * 0.72 : 0;
-      const bob = unit.air ? Math.sin(unit.bob) * cell * 0.09 : unit.moving ? Math.abs(Math.sin(unit.bob)) * cell * 0.06 : 0;
+      const dead = unit.hp <= 0;
+      const deathLeft = unit.deathT ?? 0.35;
+      const lift = unit.air ? cell * 0.72 * (dead ? Math.max(0, deathLeft / 0.35) : 1) : 0;
+      const bob = unit.air
+        ? Math.sin(unit.bob) * cell * 0.09
+        : unit.moving
+          ? Math.abs(Math.sin(unit.bob)) * cell * 0.06
+          : 0;
       drawShadow(x, y + cell * 0.24, cell * (unit.air ? 0.2 : 0.26));
-      const size = cell * (unit.type === 'giant' || unit.type === 'pekka' ? 1.32 : unit.type === 'dragon' ? 1.32 : 1.05);
-      const sprite = getSprite(unit.type);
-      ctx.globalAlpha = unit.spawn > 0 ? Math.min(1, 0.35 + (1 - unit.spawn / 0.3) * 0.65) : 1;
-      ctx.drawImage(sprite, x - size / 2, y - size * 0.82 - lift - bob, size, size);
-      ctx.globalAlpha = 1;
-      drawHealth(x, y - lift - bob - size * 0.92, unit.hp / unit.maxHp, cell * 0.5);
+      let size = cell * (unit.type === 'giant' || unit.type === 'pekka' || unit.type === 'dragon' ? 1.32 : 1.05);
+      if (unit.spawn > 0 && !dead) size *= 0.55 + 0.45 * (1 - unit.spawn / 0.3);
+      const sprite = getSprite(unit.type, frameFor(unit));
+      ctx.save();
+      ctx.translate(x, y - lift - bob + (dead ? cell * 0.08 : 0));
+      if (dead) {
+        const p = 1 - Math.max(0, deathLeft) / 0.35;
+        ctx.rotate(p * 1.3 * (unit.id % 2 ? 1 : -1));
+        ctx.globalAlpha = Math.max(0, 1 - p * 0.9);
+      } else {
+        if (unit.atkAnim > 0) {
+          const k = Math.sin((1 - unit.atkAnim / 0.14) * Math.PI) * cell * 0.2;
+          ctx.translate(unit.atkDir.x * k, unit.atkDir.y * k * 0.6);
+        }
+        if (!unit.air && unit.moving) ctx.rotate(Math.sin(unit.bob * 2) * 0.05);
+        ctx.globalAlpha = unit.spawn > 0 ? Math.min(1, 0.35 + (1 - unit.spawn / 0.3) * 0.65) : 1;
+      }
+      ctx.drawImage(sprite, -size / 2, -size * 0.82, size, size);
+      if (!dead && unit.flash > 0) {
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = (unit.flash / 0.14) * 0.55;
+        ctx.drawImage(sprite, -size / 2, -size * 0.82, size, size);
+        ctx.globalCompositeOperation = 'source-over';
+      }
+      ctx.restore();
+      if (!dead) drawHealth(x, y - lift - bob - size * 0.92, unit.hp / unit.maxHp, cell * 0.5);
     }
   }
 
@@ -328,6 +530,37 @@ export function createRenderer(stage) {
       const arc = shot.arc ? Math.sin(Math.min(1, travelled) * Math.PI) * shot.arc * cell : 0;
       const sy = y - arc;
       if (shot.arc) drawShadow(x, y, cell * 0.12);
+      if (shot.kind === 'shell' && Math.random() < 0.5) {
+        spawnSmoke(shot.x, shot.y - arc / cell);
+      } else if (shot.kind === 'rocket' && Math.random() < 0.7) {
+        particles.push({
+          x: shot.x,
+          y: shot.y,
+          vx: (Math.random() - 0.5) * 0.3,
+          vy: -0.2,
+          g: 0,
+          life: 0.25,
+          max: 0.25,
+          size: 1.6,
+          color: Math.random() < 0.5 ? '#ff8a3d' : '#ffd15a',
+          glow: true,
+          alpha: 0.9,
+        });
+      } else if (shot.kind === 'bolt' && Math.random() < 0.4) {
+        particles.push({
+          x: shot.x,
+          y: shot.y,
+          vx: (Math.random() - 0.5) * 0.5,
+          vy: (Math.random() - 0.5) * 0.5,
+          g: 0,
+          life: 0.2,
+          max: 0.2,
+          size: 1.2,
+          color: '#d79bff',
+          glow: true,
+          alpha: 0.8,
+        });
+      }
       if (shot.kind === 'arrow' || shot.kind === 'rocket') {
         const angle = Math.atan2(shot.ty - shot.y, shot.tx - shot.x);
         ctx.save();
@@ -389,6 +622,7 @@ export function createRenderer(stage) {
       p.vy += p.g * dt;
       p.x += p.vx * dt;
       p.y += p.vy * dt;
+      if (p.sway) p.x += Math.sin(p.life * 2.5 + (p.seed || 0)) * dt * 0.5;
     }
     for (let i = particles.length - 1; i >= 0; i--) {
       if (particles[i].life <= 0) particles.splice(i, 1);
@@ -410,7 +644,7 @@ export function createRenderer(stage) {
     const cell = layout.cell;
     for (const p of particles) {
       const a = Math.max(0, p.life / p.max);
-      ctx.globalAlpha = Math.min(1, a * 1.4);
+      ctx.globalAlpha = Math.min(1, a * 1.4) * (p.alpha ?? 1);
       ctx.fillStyle = p.color;
       const px = fieldSX(p.x);
       const py = fieldSY(p.y);
@@ -475,7 +709,7 @@ export function createRenderer(stage) {
     ctx.restore();
   }
 
-  function draw({ battle, theme = THEMES.grass, mode = 'battle', pointer = null, dim = 0 }) {
+  function draw({ battle, theme = THEMES.grass, themeKey = 'grass', mode = 'battle', pointer = null, dim = 0 }) {
     const now = performance.now();
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
@@ -483,6 +717,13 @@ export function createRenderer(stage) {
 
     if (battle) consumeFx(battle);
     updateParticles(dt);
+    if (!reducedMotion) {
+      ambientT -= dt;
+      if (ambientT <= 0) {
+        ambientT = 0.16;
+        spawnAmbient(themeKey);
+      }
+    }
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.imageSmoothingEnabled = false;
@@ -496,7 +737,7 @@ export function createRenderer(stage) {
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, width, height);
 
-    const shake = battle?.shake ?? 0;
+    const shake = reducedMotion ? 0 : battle?.shake ?? 0;
     shakeX = shake ? Math.sin(clock * 73) * shake * 5 : 0;
     shakeY = shake ? Math.cos(clock * 61) * shake * 4 : 0;
     ctx.save();

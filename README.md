@@ -125,6 +125,11 @@ is, and every raid starts from a clean slate.
 - **Stars and thresholds** — walls never count toward destruction. You win a base by
   reaching its destruction target (50% / 60% / 70%); stars follow the classic rules —
   Town Hall, 50% and 100% destruction. Winning unlocks the next village.
+- **Original animated art** — every sprite is painted in code when the pack
+  boots (no image files ship in the pack): two-frame walk cycles, flapping
+  wings, attack lunges, toppling corpses, buildings that scorch, crack, smoke
+  and finally collapse into rubble, sweeping defense barrels, mortar smoke
+  trails, dragon breath, and per-theme ambient weather — pollen, dust or snow.
 - **Persist** — unlocks, per-base stars and raid count live in `localStorage` under
   `neon-arcade:clashofclass:v1`; the total star count (0–9) is committed to the hub
   through `ctx.saveScore()`.
