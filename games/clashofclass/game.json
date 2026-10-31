@@ -1,0 +1,14 @@
+{
+  "id": "clashofclass",
+  "order": 4,
+  "name": "Clash of Class",
+  "tagline": "Attack-only raids: spend points on an instant army, drop it on the blue grass and raze three villages for stars.",
+  "version": "1.0.0",
+  "accent": "#8ec63f",
+  "accent2": "#f5c33b",
+  "art": "clashofclass",
+  "hint": "Tap or hold the blue grass to deploy",
+  "scoreLabel": "STARS",
+  "controls": ["tap", "hold"],
+  "entry": "index.js"
+}

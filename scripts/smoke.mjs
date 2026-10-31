@@ -54,7 +54,7 @@ try {
 
   const cards = await page.locator('.card').count();
   console.log(`  cards: ${cards}`);
-  if (cards !== 3) throw new Error(`expected 3 cards, saw ${cards}`);
+  if (cards !== 4) throw new Error(`expected 4 cards, saw ${cards}`);
 
   step('download + verify + launch Neon Stack');
   const cdp = await context.newCDPSession(page);
@@ -161,6 +161,43 @@ try {
       0,
     )} troops`,
   );
+  await leaveGame();
+
+  step('Clash of Class composes an army and raids');
+  await page.locator('.card', { hasText: 'Clash of Class' }).locator('.btn.primary').click();
+  await page.waitForSelector('.cc-level:not(.is-locked)', { timeout: 40000 });
+  await page.waitForTimeout(600);
+  await shot('13-clash-levels');
+  await page.locator('.cc-level').first().click();
+  await page.waitForSelector('.cc-units', { timeout: 5000 });
+  await page.locator('.cc-btn', { hasText: 'Auto-fill' }).click();
+  await page.waitForTimeout(300);
+  const fightBtn = page.locator('.cc-btn.attack');
+  if (await fightBtn.isDisabled()) throw new Error('army composer produced an empty army');
+  await shot('13b-clash-army');
+  await fightBtn.click();
+  await page.waitForSelector('.cc-tray .cc-slot', { timeout: 5000 });
+  await page.waitForTimeout(500);
+  await shot('13c-clash-battle');
+  // Drop one troop on the top grass ring (the field starts ~118px down).
+  await page.mouse.click(195, 245);
+  await page.waitForTimeout(1200);
+  const hudPct = await page.textContent('.cc-dest b');
+  console.log(`  destruction after first drop: ${hudPct}`);
+  await shot('13d-clash-deployed');
+  await page.locator('.cc-end').click();
+  await page.waitForSelector('.cc-result', { timeout: 5000 });
+  await page.waitForTimeout(800);
+  await shot('13e-clash-result');
+  const ccSave = await page.evaluate(() => localStorage.getItem('neon-arcade:clashofclass:v1'));
+  if (!ccSave) throw new Error('Clash of Class did not write its save');
+  const ccParsed = JSON.parse(ccSave);
+  if (typeof ccParsed.plays !== 'number' || ccParsed.plays < 1) {
+    throw new Error('Clash of Class save has no raid recorded');
+  }
+  console.log(`  save written: ${ccParsed.plays} raid(s), stars ${JSON.stringify(ccParsed.stars)}`);
+  await page.locator('.cc-card .cc-btn', { hasText: 'Bases' }).click();
+  await page.waitForTimeout(400);
   await leaveGame();
 
   step('storage sheet');

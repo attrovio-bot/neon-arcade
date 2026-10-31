@@ -13,6 +13,7 @@ Live: **https://attrovio-bot.github.io/neon-arcade/**
 | **Neon Stack** | Drop sliding slabs, keep the tower alive, win width back with dead-centre drops. | Tap |
 | **Tunnel Run** | Steer a ship through collapsing neon gates, thread the holes, grab orbs. | Drag / keys |
 | **Firenze: Last Light** | One persistent Florence, three sieges: rebuild and upgrade the city, drill a specialized army, then deploy it at the gates. | Tap / drag |
+| **Clash of Class** | Attack-only Clash-style raids: spend a point budget on an instant army (no training), drop it on the blue grass ring and raze three hand-built villages for stars. | Tap / hold |
 
 ## How it works
 
@@ -27,7 +28,8 @@ GitHub Pages
    ├─ index.json         catalog: id, version, file, size, sha256
    ├─ stack-1.0.0.arcp   Neon Stack
    ├─ tunnel-1.0.0.arcp  Tunnel Run
-   └─ firenze-2.0.0.arcp Firenze: Last Light
+   ├─ firenze-2.0.0.arcp Firenze: Last Light
+   └─ clashofclass-1.0.0.arcp Clash of Class
 ```
 
 Tapping a game:
@@ -60,7 +62,7 @@ offset 12  JSON header     id, name, version, art, controls, asset table,
 Building (`scripts/build-packs.mjs`) bundles each `games/<id>/index.js` with esbuild
 (minified ESM, Three.js included), gzips it, appends declared assets, wraps it in the
 container and writes `public/packs/<id>-<version>.arcp` plus `index.json`. Packs are
-budgeted at 2 MB; the three shipped packs are ~137–172 KB each. Assets (glow/noise
+budgeted at 2 MB; the four shipped packs are each well under 300 KB. Assets (glow/noise
 textures, icons) are generated at build time by a dependency-free PNG writer in
 `scripts/png.mjs`, so no binary art is committed.
 
@@ -101,6 +103,32 @@ between them. Each siege has three hordes; the third brings a crowned boss.
 - The arcade best for this pack is the total number of hordes held (0–9), committed
   through `ctx.saveScore()` as soon as it grows.
 
+## Clash of Class
+
+An attack-only, Clash-of-Clans-style raider: there is no home village to build or
+protect. Three hand-built 14×14 villages (grass, sand and snow themes) are all there
+is, and every raid starts from a clean slate.
+
+- **Compose instantly** — before each raid you spend a point budget (500 / 750 / 1000
+  points across the three bases) on any mix of ten troops: Barbarian, Archer, Goblin,
+  Giant, Wall Breaker, Balloon, Wizard, Healer, Dragon and P.E.K.K.A. Costs mirror the
+  original's housing economy (5 points per housing space), and there is no training
+  time — the army exists the moment you buy it.
+- **Deploy from the grass ring** — tap or hold the blue grass around the village. The
+  180-second clock starts on the first drop, and troops can be sent in for the whole
+  battle, not just the opening.
+- **Raid like the original** — walls block ground troops until someone breaks them
+  (Wall Breakers explode for bonus wall damage), giants hunt defenses, goblins loot
+  resources, balloons and dragons fly over walls, healers sustain the push. Defenses
+  answer with their real layers: cannons ground-only, archer towers and wizard towers
+  both, mortars ground splash with a minimum range, air defenses air-only.
+- **Stars and thresholds** — walls never count toward destruction. You win a base by
+  reaching its destruction target (50% / 60% / 70%); stars follow the classic rules —
+  Town Hall, 50% and 100% destruction. Winning unlocks the next village.
+- **Persist** — unlocks, per-base stars and raid count live in `localStorage` under
+  `neon-arcade:clashofclass:v1`; the total star count (0–9) is committed to the hub
+  through `ctx.saveScore()`.
+
 ## Local development
 
 ```bash
@@ -122,7 +150,8 @@ npm run smoke              # in another; screenshots land in shots/
 ```
 
 The smoke test covers catalog render, download/verify/cache, gameplay and scoring,
-retry, offline relaunch from IndexedDB, Firenze's persistent city, the storage sheet,
+retry, offline relaunch from IndexedDB, Firenze's persistent city, a full Clash of
+Class raid (compose → deploy → end raid → save written), the storage sheet,
 pack deletion and tamper rejection.
 
 ## Adding a game
@@ -179,6 +208,9 @@ in `src/main.js`); `accent`/`accent2` theme the card, loader and HUD.
   buildings and levels, citizens, stores, nests, reserve army, training queue, wave
   progress and permanent upgrades. It survives reloads, losses and pack updates, and
   is only removed if you clear site data or browser storage.
+- Clash of Class keeps its campaign in `localStorage`
+  (`neon-arcade:clashofclass:v1`): unlocked bases, per-base stars and raid count.
+  Same rules — it survives reloads and losses, and goes away with site data.
 - **Storage** in the hub shows usage, requests persistent storage, and deletes one
   pack or everything.
 - Deleting a pack removes its header and payload; best scores stay on the device.
